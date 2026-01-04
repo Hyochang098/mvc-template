@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: mvc-template
+  jackson:
+    time-zone: Asia/Seoul
+  jpa:
+    open-in-view: false
+
+# 공통
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    root: info
+    org.springframework: info
+
+security:
+  cookie:
+    secure: true
+    same-site: Lax
+    access-max-age-seconds: 1800
+    refresh-max-age-seconds: 604800
+    domain:
+  jwt:
+    check-db: false
+
+jwt:
+  access-token-validity-in-seconds: 1800
+  refresh-token-validity-in-seconds: 604800
