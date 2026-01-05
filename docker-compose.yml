@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: mvc-template-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Seoul
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u${MYSQL_USER} -p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mvc-template-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ex_dev.env
+    environment:
+      SPRING_PROFILES_ACTIVE: deploy
+      DB_DRIVER: com.mysql.cj.jdbc.Driver
+      DB_URL: jdbc:mysql://db:3306/${DB_NAME}?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&useSSL=false&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JPA_DDL_AUTO: none
+      JPA_SHOW_SQL: "false"
+      JPA_FORMAT_SQL: "true"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      COOKIE_ACCESS_MAX_AGE_SECONDS: ${COOKIE_ACCESS_MAX_AGE_SECONDS}
+      COOKIE_REFRESH_MAX_AGE_SECONDS: ${COOKIE_REFRESH_MAX_AGE_SECONDS}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:
+
