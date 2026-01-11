@@ -12,6 +12,10 @@ spring:
       hibernate:
         format_sql: ${JPA_FORMAT_SQL:true}
     open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 logging:
   level:
@@ -44,3 +48,8 @@ jwt:
   access-token-validity-in-seconds: ${JWT_ACCESS_TTL:1800}
   refresh-token-validity-in-seconds: ${JWT_REFRESH_TTL:604800}
 
+cache:
+  refresh-token:
+    ttl-seconds: ${CACHE_REFRESH_TOKEN_TTL_SECONDS:900}
+  access-token-blacklist:
+    ttl-seconds: ${CACHE_ACCESS_TOKEN_BLACKLIST_TTL_SECONDS:1800}

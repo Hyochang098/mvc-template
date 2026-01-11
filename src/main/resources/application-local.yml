@@ -9,6 +9,10 @@ spring:
     console:
       enabled: true
       path: /h2-console
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
   jpa:
     hibernate:
@@ -45,3 +49,8 @@ jwt:
   access-token-validity-in-seconds: 900   # 15분
   refresh-token-validity-in-seconds: 604800
 
+cache:
+  refresh-token:
+    ttl-seconds: 900
+  access-token-blacklist:
+    ttl-seconds: 900

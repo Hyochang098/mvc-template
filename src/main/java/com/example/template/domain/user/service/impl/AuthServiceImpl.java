@@ -3,6 +3,8 @@ package com.example.template.domain.user.service.impl;
 
 import com.example.template.domain.refreshtoken.entity.RefreshToken;
 import com.example.template.domain.refreshtoken.repository.RefreshTokenRepository;
+import com.example.template.domain.refreshtoken.service.RefreshTokenCacheService;
+import com.example.template.domain.refreshtoken.service.RefreshTokenCacheValue;
 import com.example.template.domain.user.dto.LoginRequestDto;
 import com.example.template.domain.user.dto.SignUpRequestDto;
 import com.example.template.domain.user.dto.TokenResponseDto;
@@ -12,6 +14,7 @@ import com.example.template.domain.user.service.AuthService;
 import com.example.template.global.common.entity.Role;
 import com.example.template.global.common.exception.ApiException;
 import com.example.template.global.common.exception.ErrorMessage;
+import com.example.template.global.security.service.AccessTokenBlacklistService;
 import com.example.template.global.security.service.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +25,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
@@ -34,6 +38,8 @@ public class AuthServiceImpl implements AuthService {
   private final JwtTokenProvider jwtTokenProvider;
   private final AuthenticationManager authenticationManager;
   private final RefreshTokenRepository refreshTokenRepository;
+  private final RefreshTokenCacheService refreshTokenCacheService;
+  private final AccessTokenBlacklistService accessTokenBlacklistService;
   private final PasswordEncoder passwordEncoder;
 
   @Override
@@ -93,6 +99,8 @@ public class AuthServiceImpl implements AuthService {
               )
           );
 
+      refreshTokenCacheService.store(user.getUserId(), refreshTokenHash, refreshExpiresAt);
+
       log.info("[AuthService] 로그인 성공 userId={}", user.getUserId());
 
       return new TokenResponseDto(
@@ -121,19 +129,27 @@ public class AuthServiceImpl implements AuthService {
 
     Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
 
-    RefreshToken storedToken = refreshTokenRepository.findByUserId(userId)
-        .orElseThrow(() -> {
-          log.error("[AuthService] 토큰 재발급 실패 - 저장된 리프레시 토큰 없음, userId={}", userId);
-          return ApiException.of(HttpStatus.NOT_FOUND, ErrorMessage.REFRESH_TOKEN_NOT_FOUND);
-        });
+    RefreshTokenCacheValue cachedToken = refreshTokenCacheService.get(userId)
+        .orElse(null);
+    RefreshToken storedToken = null;
 
-    if (storedToken.isExpired(LocalDateTime.now())) {
+    if (cachedToken == null) {
+      storedToken = refreshTokenRepository.findByUserId(userId)
+          .orElseThrow(() -> {
+            log.error("[AuthService] 토큰 재발급 실패 - 저장된 리프레시 토큰 없음, userId={}", userId);
+            return ApiException.of(HttpStatus.NOT_FOUND, ErrorMessage.REFRESH_TOKEN_NOT_FOUND);
+          });
+      cachedToken = new RefreshTokenCacheValue(storedToken.getTokenHash(), storedToken.getExpiresAt());
+      refreshTokenCacheService.store(userId, cachedToken.tokenHash(), cachedToken.expiresAt());
+    }
+
+    if (cachedToken.isExpired(LocalDateTime.now())) {
       log.warn("[AuthService] 토큰 재발급 실패 - 저장된 토큰 만료, userId={}", userId);
       throw ApiException.of(HttpStatus.UNAUTHORIZED, ErrorMessage.INVALID_REFRESH_TOKEN);
     }
 
-    boolean refreshTokenMatches = passwordEncoder.matches(refreshToken, storedToken.getTokenHash())
-        || refreshToken.equals(storedToken.getTokenHash()); // 이전 평문 저장분 호환
+    boolean refreshTokenMatches = passwordEncoder.matches(refreshToken, cachedToken.tokenHash())
+        || refreshToken.equals(cachedToken.tokenHash()); // 이전 평문 저장분 호환
     if (!refreshTokenMatches) {
       log.warn("[AuthService] 토큰 재발급 실패 - 토큰 불일치, userId={}", userId);
       throw ApiException.of(HttpStatus.UNAUTHORIZED, ErrorMessage.INVALID_REFRESH_TOKEN);
@@ -148,8 +164,18 @@ public class AuthServiceImpl implements AuthService {
     String newRefreshTokenHash = passwordEncoder.encode(newRefreshToken);
     LocalDateTime newRefreshExpiresAt = calculateRefreshTokenExpiry();
 
+    RefreshTokenCacheValue finalCachedToken = cachedToken;
+    if (storedToken == null) {
+      storedToken = refreshTokenRepository.findByUserId(userId)
+          .orElseGet(() -> RefreshToken.builder()
+              .userId(userId)
+              .tokenHash(finalCachedToken.tokenHash())
+              .expiresAt(finalCachedToken.expiresAt())
+              .build());
+    }
     storedToken.updateToken(newRefreshTokenHash, newRefreshExpiresAt);
     refreshTokenRepository.save(storedToken);
+    refreshTokenCacheService.store(userId, newRefreshTokenHash, newRefreshExpiresAt);
 
     log.info("[AuthService] 토큰 재발급 성공, userId={}", userId);
 
@@ -166,9 +192,14 @@ public class AuthServiceImpl implements AuthService {
 
   @Override
   @Transactional
-  public void logout(Long userId) {
+  public void logout(Long userId, String accessToken) {
     log.info("[AuthService] 로그아웃 시도 userId={}", userId);
     refreshTokenRepository.deleteByUserId(userId);
+    refreshTokenCacheService.evict(userId);
+    if (StringUtils.hasText(accessToken)) {
+      long remainingTtlSeconds = jwtTokenProvider.getRemainingValidityInSeconds(accessToken);
+      accessTokenBlacklistService.blacklist(accessToken, remainingTtlSeconds);
+    }
     log.info("[AuthService] 로그아웃 완료 userId={}", userId);
   }
 

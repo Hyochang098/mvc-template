@@ -2,6 +2,7 @@ package com.example.template.global.security.service;
 
 import com.example.template.domain.user.entity.User;
 import com.example.template.domain.user.repository.UserRepository;
+import com.example.template.global.security.service.AccessTokenBlacklistService;
 import com.example.template.global.common.entity.Role;
 import com.example.template.global.common.util.CookieUtil;
 import com.example.template.global.security.UserPrincipal;
@@ -28,6 +29,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
   private final JwtTokenProvider jwtTokenProvider;
   private final UserRepository userRepository;
+  private final AccessTokenBlacklistService accessTokenBlacklistService;
 
   @Value("${security.jwt.check-db:false}")
   private boolean checkUserStateWithDb;
@@ -39,7 +41,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     String accessToken = getAccessTokenFromRequest(request);
 
     // Access Token이 유효한 경우만 인증 처리
-    if (StringUtils.hasText(accessToken) && jwtTokenProvider.validateToken(accessToken)) {
+    if (StringUtils.hasText(accessToken)
+        && !accessTokenBlacklistService.isBlacklisted(accessToken)
+        && jwtTokenProvider.validateToken(accessToken)) {
       authenticateWithToken(request, accessToken);
     }
     // refresh Token 기반 재발급 로직은 없음 필요시 추가 예정
@@ -128,4 +132,3 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   }
 
 }
-

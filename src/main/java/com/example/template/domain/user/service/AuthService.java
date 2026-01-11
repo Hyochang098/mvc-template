@@ -25,7 +25,7 @@ public interface AuthService {
   /**
    * 로그아웃 - Refresh Token DB에서 삭제
    */
-  void logout(Long userId);
+  void logout(Long userId, String accessToken);
 
   /**
    * 이메일 사용 가능 여부 확인

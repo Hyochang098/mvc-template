@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.ArgumentMatchers.anyString;
 
 @ExtendWith(MockitoExtension.class)
 class JwtAuthenticationFilterTest {
@@ -30,12 +31,15 @@ class JwtAuthenticationFilterTest {
   private JwtTokenProvider jwtTokenProvider;
   @Mock
   private UserRepository userRepository;
+  @Mock
+  private AccessTokenBlacklistService accessTokenBlacklistService;
 
   private JwtAuthenticationFilter filter;
 
   @BeforeEach
   void setUp() {
-    filter = new JwtAuthenticationFilter(jwtTokenProvider, userRepository);
+    given(accessTokenBlacklistService.isBlacklisted(anyString())).willReturn(false);
+    filter = new JwtAuthenticationFilter(jwtTokenProvider, userRepository, accessTokenBlacklistService);
     ReflectionTestUtils.setField(filter, "checkUserStateWithDb", true);
     SecurityContextHolder.clearContext();
   }
@@ -58,6 +62,21 @@ class JwtAuthenticationFilterTest {
     given(jwtTokenProvider.getEmailFromToken("token")).willReturn("missing@test.com");
     given(jwtTokenProvider.getRoleFromToken("token")).willReturn("GENERAL");
     given(userRepository.findById(99L)).willReturn(Optional.empty());
+
+    filter.doFilterInternal(request, response, chain);
+
+    assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+  }
+
+  @Test
+  @DisplayName("블랙리스트 토큰이면 인증을 진행하지 않는다")
+  void doFilter_skipsAuthentication_whenTokenBlacklisted() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Bearer token");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    MockFilterChain chain = new MockFilterChain();
+
+    given(accessTokenBlacklistService.isBlacklisted("token")).willReturn(true);
 
     filter.doFilterInternal(request, response, chain);
 
@@ -96,4 +115,3 @@ class JwtAuthenticationFilterTest {
         .containsExactly("ROLE_ADMIN");
   }
 }
-

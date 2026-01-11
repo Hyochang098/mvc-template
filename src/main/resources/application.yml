@@ -1,6 +1,10 @@
 spring:
   application:
     name: mvc-template
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   jackson:
     time-zone: Asia/Seoul
   jpa:
@@ -31,3 +35,9 @@ security:
 jwt:
   access-token-validity-in-seconds: 1800
   refresh-token-validity-in-seconds: 604800
+
+cache:
+  refresh-token:
+    ttl-seconds: 900
+  access-token-blacklist:
+    ttl-seconds: 1800

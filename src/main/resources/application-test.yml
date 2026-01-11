@@ -12,6 +12,10 @@ spring:
       hibernate:
         format_sql: true
     open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 
 logging:
   level:
@@ -31,3 +35,8 @@ jwt:
   secret: ${JWT_SECRET:test-secret-should-be-at-least-32-characters-long!}
   access-token-validity-in-seconds: 900
 
+cache:
+  refresh-token:
+    ttl-seconds: 900
+  access-token-blacklist:
+    ttl-seconds: 900

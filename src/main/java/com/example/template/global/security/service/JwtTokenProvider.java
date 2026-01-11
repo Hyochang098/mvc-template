@@ -132,4 +132,21 @@ public class JwtTokenProvider {
   public long getRefreshTokenValidityInSeconds() {
     return refreshTokenValidityInMilliseconds / 1000;
   }
+
+  public long getAccessTokenValidityInSeconds() {
+    return accessTokenValidityInMilliseconds / 1000;
+  }
+
+  public long getRemainingValidityInSeconds(String token) {
+    try {
+      Date expiration = getClaimsFromToken(token).getExpiration();
+      long remainingMillis = expiration.getTime() - System.currentTimeMillis();
+      return remainingMillis > 0 ? remainingMillis / 1000 : 0;
+    } catch (ExpiredJwtException e) {
+      return 0;
+    } catch (Exception e) {
+      log.warn("JWT 만료 시간 계산 실패: {}", e.getMessage());
+      return 0;
+    }
+  }
 }

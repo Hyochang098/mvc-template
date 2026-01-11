@@ -103,9 +103,18 @@ public class AuthController {
   })
   @PostMapping("/logout")
   public ResponseEntity<Void> logout(
+      HttpServletRequest request,
       @AuthenticationPrincipal UserPrincipal userPrincipal) {
 
-    authService.logout(userPrincipal.getUserId());
+    String accessToken = CookieUtil.getCookieValue(request, "accessToken");
+    if (accessToken == null || accessToken.isBlank()) {
+      String bearerToken = request.getHeader("Authorization");
+      if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+        accessToken = bearerToken.substring(7);
+      }
+    }
+
+    authService.logout(userPrincipal.getUserId(), accessToken);
 
     return ResponseEntity.noContent()
         .headers(CookieUtil.cleanCookies())

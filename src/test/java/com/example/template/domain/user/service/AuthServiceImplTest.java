@@ -2,6 +2,7 @@ package com.example.template.domain.user.service;
 
 import com.example.template.domain.refreshtoken.entity.RefreshToken;
 import com.example.template.domain.refreshtoken.repository.RefreshTokenRepository;
+import com.example.template.domain.refreshtoken.service.RefreshTokenCacheService;
 import com.example.template.domain.user.dto.LoginRequestDto;
 import com.example.template.domain.user.dto.SignUpRequestDto;
 import com.example.template.domain.user.entity.User;
@@ -10,7 +11,9 @@ import com.example.template.domain.user.service.impl.AuthServiceImpl;
 import com.example.template.global.common.entity.Role;
 import com.example.template.global.common.exception.ApiException;
 import com.example.template.global.common.exception.ErrorMessage;
+import com.example.template.global.security.service.AccessTokenBlacklistService;
 import com.example.template.global.security.service.JwtTokenProvider;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,10 +32,13 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImplTest {
@@ -44,7 +50,14 @@ class AuthServiceImplTest {
     @Mock private JwtTokenProvider jwtTokenProvider;
     @Mock private AuthenticationManager authenticationManager;
     @Mock private RefreshTokenRepository refreshTokenRepository;
+    @Mock private RefreshTokenCacheService refreshTokenCacheService;
+    @Mock private AccessTokenBlacklistService accessTokenBlacklistService;
     @Mock private PasswordEncoder passwordEncoder;
+
+    @BeforeEach
+    void init() {
+        lenient().when(refreshTokenCacheService.get(anyLong())).thenReturn(Optional.empty());
+    }
 
     @Test
     @DisplayName("signUp - 새로운 이메일이면 암호화 후 GENERAL 권한으로 저장한다")
@@ -123,6 +136,7 @@ class AuthServiceImplTest {
         assertThat(stored.getTokenHash()).isEqualTo("hashedNewRefresh");
         assertThat(stored.getExpiresAt()).isAfter(LocalDateTime.now().minusSeconds(1));
         verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+        verify(refreshTokenCacheService).store(eq(1L), eq("hashedNewRefresh"), any(LocalDateTime.class));
     }
 
     @Test
@@ -154,6 +168,7 @@ class AuthServiceImplTest {
         );
         verify(userRepository).findByEmail("user@test.com");
         verify(refreshTokenRepository).save(argThat(saved -> saved.getTokenHash().equals("hashedRefresh")));
+        verify(refreshTokenCacheService).store(eq(1L), eq("hashedRefresh"), any(LocalDateTime.class));
     }
 
     @Test
@@ -270,6 +285,7 @@ class AuthServiceImplTest {
         assertThat(stored.getTokenHash()).isEqualTo("newHashedRefresh");
         assertThat(stored.getExpiresAt()).isAfter(LocalDateTime.now().minusSeconds(1));
         verify(refreshTokenRepository).save(stored);
+        verify(refreshTokenCacheService).store(eq(1L), eq("newHashedRefresh"), any(LocalDateTime.class));
     }
 
     @Test
@@ -277,12 +293,15 @@ class AuthServiceImplTest {
     void logout_deletesRefreshTokenByUserId() {
         // given: 삭제 대상 userId
         Long userId = 1L;
+        given(jwtTokenProvider.getRemainingValidityInSeconds("access")).willReturn(120L);
 
         // when
-        authService.logout(userId);
+        authService.logout(userId, "access");
 
         // then
         verify(refreshTokenRepository).deleteByUserId(userId);
+        verify(refreshTokenCacheService).evict(userId);
+        verify(accessTokenBlacklistService).blacklist("access", 120L);
     }
 
     @Test
@@ -307,4 +326,3 @@ class AuthServiceImplTest {
                 .satisfies(ex -> assertThat(((ApiException) ex).getCode()).isEqualTo(HttpStatus.BAD_REQUEST.value()));
     }
 }
-
