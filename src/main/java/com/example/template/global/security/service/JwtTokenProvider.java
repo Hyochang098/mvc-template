@@ -145,7 +145,7 @@ public class JwtTokenProvider {
     } catch (ExpiredJwtException e) {
       return 0;
     } catch (Exception e) {
-      log.warn("JWT 만료 시간 계산 실패: {}", e.getMessage());
+      log.debug("JWT 만료 시간 계산 실패");
       return 0;
     }
   }

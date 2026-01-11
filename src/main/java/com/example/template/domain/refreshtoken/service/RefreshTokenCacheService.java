@@ -8,9 +8,15 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.Map;
 import java.util.Optional;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -18,9 +24,12 @@ import java.util.Optional;
 public class RefreshTokenCacheService {
 
   private static final String REDIS_KEY_PREFIX = "refreshToken:";
+  private static final String HASH_FIELD = "hash";
+  private static final String EXP_FIELD = "exp";
 
   private final Cache<Long, RefreshTokenCacheValue> refreshTokenCache;
   private final StringRedisTemplate stringRedisTemplate;
+  private final ObjectMapper objectMapper = new ObjectMapper();
 
   @Value("${cache.refresh-token.ttl-seconds:900}")
   private long refreshTokenTtlSeconds;
@@ -53,9 +62,10 @@ public class RefreshTokenCacheService {
   public void store(Long userId, String tokenHash, LocalDateTime expiresAt) {
     RefreshTokenCacheValue cacheValue = new RefreshTokenCacheValue(tokenHash, expiresAt);
     refreshTokenCache.put(userId, cacheValue);
-    if (refreshTokenTtlSeconds > 0) {
+    String serialized = serialize(cacheValue);
+    if (refreshTokenTtlSeconds > 0 && serialized != null) {
       stringRedisTemplate.opsForValue()
-          .set(buildKey(userId), serialize(cacheValue), Duration.ofSeconds(refreshTokenTtlSeconds));
+          .set(buildKey(userId), serialized, Duration.ofSeconds(refreshTokenTtlSeconds));
     }
   }
 
@@ -69,19 +79,32 @@ public class RefreshTokenCacheService {
   }
 
   private String serialize(RefreshTokenCacheValue value) {
-    return value.tokenHash() + "|" + value.expiresAt();
+    String encodedHash = Base64.getEncoder().encodeToString(value.tokenHash().getBytes(StandardCharsets.UTF_8));
+    try {
+      return objectMapper.writeValueAsString(
+          Map.of(
+              HASH_FIELD, encodedHash,
+              EXP_FIELD, value.expiresAt().toString()
+          )
+      );
+    } catch (JsonProcessingException e) {
+      log.warn("[RefreshTokenCache] 직렬화 실패");
+      return null;
+    }
   }
 
   private RefreshTokenCacheValue deserialize(String raw) {
-    String[] parts = raw.split("\\|", 2);
-    if (parts.length != 2) {
-      log.warn("[RefreshTokenCache] Deserialize 실패 - raw={}", raw);
-      return null;
-    }
     try {
-      return new RefreshTokenCacheValue(parts[0], LocalDateTime.parse(parts[1]));
+      Map<String, String> payload = objectMapper.readValue(raw, new TypeReference<>() {});
+      String encodedHash = payload.get(HASH_FIELD);
+      String expires = payload.get(EXP_FIELD);
+      if (!StringUtils.hasText(encodedHash) || !StringUtils.hasText(expires)) {
+        return null;
+      }
+      String decodedHash = new String(Base64.getDecoder().decode(encodedHash), StandardCharsets.UTF_8);
+      return new RefreshTokenCacheValue(decodedHash, LocalDateTime.parse(expires));
     } catch (Exception ex) {
-      log.warn("[RefreshTokenCache] Deserialize 예외 - raw={}, ex={}", raw, ex.getMessage());
+      log.warn("[RefreshTokenCache] Deserialize 예외 - 형식 오류");
       return null;
     }
   }

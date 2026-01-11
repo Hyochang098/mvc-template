@@ -131,16 +131,18 @@ public class AuthServiceImpl implements AuthService {
 
     RefreshTokenCacheValue cachedToken = refreshTokenCacheService.get(userId)
         .orElse(null);
-    RefreshToken storedToken = null;
+    RefreshToken storedToken = refreshTokenRepository.findByUserId(userId).orElse(null);
 
     if (cachedToken == null) {
-      storedToken = refreshTokenRepository.findByUserId(userId)
-          .orElseThrow(() -> {
-            log.error("[AuthService] 토큰 재발급 실패 - 저장된 리프레시 토큰 없음, userId={}", userId);
-            return ApiException.of(HttpStatus.NOT_FOUND, ErrorMessage.REFRESH_TOKEN_NOT_FOUND);
-          });
+      if (storedToken == null) {
+        log.error("[AuthService] 토큰 재발급 실패 - 저장된 리프레시 토큰 없음, userId={}", userId);
+        throw ApiException.of(HttpStatus.NOT_FOUND, ErrorMessage.REFRESH_TOKEN_NOT_FOUND);
+      }
       cachedToken = new RefreshTokenCacheValue(storedToken.getTokenHash(), storedToken.getExpiresAt());
       refreshTokenCacheService.store(userId, cachedToken.tokenHash(), cachedToken.expiresAt());
+    } else if (storedToken == null) {
+      log.error("[AuthService] 토큰 재발급 실패 - 캐시만 존재, userId={}", userId);
+      throw ApiException.of(HttpStatus.NOT_FOUND, ErrorMessage.REFRESH_TOKEN_NOT_FOUND);
     }
 
     if (cachedToken.isExpired(LocalDateTime.now())) {
@@ -164,15 +166,6 @@ public class AuthServiceImpl implements AuthService {
     String newRefreshTokenHash = passwordEncoder.encode(newRefreshToken);
     LocalDateTime newRefreshExpiresAt = calculateRefreshTokenExpiry();
 
-    RefreshTokenCacheValue finalCachedToken = cachedToken;
-    if (storedToken == null) {
-      storedToken = refreshTokenRepository.findByUserId(userId)
-          .orElseGet(() -> RefreshToken.builder()
-              .userId(userId)
-              .tokenHash(finalCachedToken.tokenHash())
-              .expiresAt(finalCachedToken.expiresAt())
-              .build());
-    }
     storedToken.updateToken(newRefreshTokenHash, newRefreshExpiresAt);
     refreshTokenRepository.save(storedToken);
     refreshTokenCacheService.store(userId, newRefreshTokenHash, newRefreshExpiresAt);
